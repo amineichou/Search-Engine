@@ -1,0 +1,30 @@
+{
+  "name": "backend",
+  "version": "1.0.0",
+  "description": "search engine backend",
+  "keywords": [
+    "search",
+    "engine"
+  ],
+  "license": "ISC",
+  "author": "amine ichou",
+  "type": "commonjs",
+  "main": "server.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "dev": "nodemon server.js"
+  },
+  "dependencies": {
+    "compromise": "^14.14.4",
+    "cors": "^2.8.5",
+    "didyoumean": "^1.2.2",
+    "dotenv": "^17.2.3",
+    "express": "^5.1.0",
+    "fast-levenshtein": "^3.0.0",
+    "natural": "^8.1.0",
+    "node-cache": "^5.1.2",
+    "nodemon": "^3.1.11",
+    "spelling": "^2.0.2",
+    "sqlite3": "^5.1.7"
+  }
+}
