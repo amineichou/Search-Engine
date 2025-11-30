@@ -23,6 +23,7 @@ const std::vector<std::string> START_WEBSITES = {
     // "https://www.x.com",
     // "https://www.instagram.com",
     // "https://www.reddit.com",
+    // "https://github.com",
     // "https://en.wikipedia.org",
     // "https://www.bioglance.in",
     // "https://www.imdb.com",
@@ -40,6 +41,7 @@ const std::vector<std::string> START_WEBSITES = {
     // "https://en.wikipedia.org/wiki/Forbes_Celebrity_100",
     // "https://today.yougov.com/ratings/entertainment/fame/people/all"
     // "https://en.wikipedia.org/wiki/Billie_Eilish",
+    // "https://www.britannica.com/biography/Lady-Gaga",
     // "https://en.wikipedia.org/wiki/Elon_Musk",
     // "https://en.wikipedia.org/wiki/Tom_Cruise",
     // "https://en.wikipedia.org/wiki/Vladimir_Putin",
@@ -54,12 +56,20 @@ const std::vector<std::string> START_WEBSITES = {
     // "https://www.imdb.com/?ref_=chttp_nv_home",
     // "https://en.wikipedia.org/wiki/List_of_countries_and_dependencies_by_area",
     // "https://en.wikipedia.org/wiki/Instagram",
-    
+    // "https://en.wikipedia.org/wiki/YouTube",
+    // "https://en.wikipedia.org/wiki/Google",
+    // "https://en.wikipedia.org/wiki/Facebook",
+    // "https://en.wikipedia.org/wiki/Twitter",
+    // "https://en.wikipedia.org/wiki/LinkedIn",
+    // "https://en.wikipedia.org/wiki/Reddit",
+    // "https://en.wikipedia.org/wiki/Instagram",
+    // "https://en.wikipedia.org/wiki/Netflix",
+    // "https://en.wikipedia.org/wiki/Artificial_intelligence",
 };
 
 #define MAX_PAGES_PER_SITE 100
 #define MAX_DEPTH 3
-#define CRAWL_DELAY_MS 1  // 1 second delay between requests (be polite)
+#define CRAWL_DELAY_MS 0  // 1 second delay between requests (be polite)
 
 struct RobotsRules {
     std::set<std::string> disallowedPaths;

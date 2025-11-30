@@ -66,38 +66,26 @@ function getKnowledgeGraphInfo(query, callback) {
             return;
         }
         
-        // Extract key information from content using NLP
-        const text = row.content || row.description || '';
-        const doc = nlp(text);
+        let description = row.description || '';
         
-        // Try to extract structured information
+        // If no description, extract most relevant sentence from content
+        if (!description && row.content) {
+            const doc = nlp(row.content);
+            const sentences = doc.sentences().out('array');
+            const relevantSentence = sentences.find(sentence => 
+                sentence.length > 20 && sentence.length < 200
+            );
+            description = relevantSentence || '';
+        }
+        
+        // Simple knowledge card with only title, url, and description
         const knowledgeCard = {
             title: row.title,
             url: row.url,
-            type: 'Information',
-            facts: []
+            description: description
         };
         
-        // Extract numbers/values (years, statistics, etc.)
-        const numbers = doc.numbers().out('array');
-        if (numbers.length > 0) {
-            knowledgeCard.facts.push({ label: 'Notable', value: numbers.slice(0, 2).join(', ') });
-        }
-        
-        // Extract key sentences (first few informative sentences)
-        const sentences = doc.sentences().out('array');
-        sentences.slice(0, 3).forEach(sentence => {
-            if (sentence.length > 20 && sentence.length < 200) {
-                knowledgeCard.facts.push({ label: 'Info', value: sentence });
-            }
-        });
-        
-        // Add description if available
-        if (row.description && row.description.length > 20) {
-            knowledgeCard.description = row.description;
-        }
-        
-        callback(knowledgeCard.facts.length > 0 || knowledgeCard.description ? knowledgeCard : null);
+        callback(knowledgeCard);
     });
 }
 
@@ -371,7 +359,7 @@ app.get("/search", (req, res) => {
                     const otherImages = uniqueImages.filter(img => 
                         !processedTokens.some(token => img.toLowerCase().includes(token))
                     );
-                    images = [...matchingImages, ...otherImages];
+                    images = [...matchingImages, ...otherImages].slice(0, 4);
                 }
                 return {
                     title: row.title,
@@ -413,7 +401,7 @@ app.get("/search", (req, res) => {
                         const otherImages = uniqueImages.filter(img => 
                             !processedTokens.some(token => img.toLowerCase().includes(token))
                         );
-                        images = [...matchingImages, ...otherImages];
+                        images = [...matchingImages, ...otherImages].slice(0, 4);
                     }
                     return {
                         title: row.title,
@@ -429,7 +417,7 @@ app.get("/search", (req, res) => {
                 url: row.url,
                 description: row.description,
                 content: row.content,
-                images: row.images ? row.images.split('|||').filter(img => img.trim()) : [],
+                images: row.images ? row.images.split('|||').filter(img => img.trim()).slice(0, 4) : [],
                 favicon: row.favicon
             }));
             

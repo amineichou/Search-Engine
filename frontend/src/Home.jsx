@@ -18,21 +18,21 @@ const Home = () => {
     }
 
     return (
-        <div className="min-h-screen overflow-hidden bg-white flex flex-col items-center justify-center px-4">
-            <div className="w-full max-w-2xl space-y-8">
+        <div className="min-h-screen bg-white flex flex-col items-center justify-center px-4">
+            <div className="w-full max-w-2xl space-y-10">
                 {/* Logo/Title */}
-                <div className="text-center space-y-2">
-                    <h1 className="text-5xl sm:text-6xl md:text-7xl font-bold text-blue-600">
+                <div className="text-center">
+                    <h1 className="text-6xl sm:text-7xl font-semibold text-blue-600">
                         Search
                     </h1>
                 </div>
 
                 {/* Search Box */}
                 <div className="w-full">
-                    <div className="relative flex items-center group">
+                    <div className="relative flex items-center">
                         {/* Search Icon */}
-                        <div className="absolute left-5 text-gray-400 group-focus-within:text-blue-600">
-                            <svg className="w-5 h-5 sm:w-6 sm:h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <div className="absolute left-5 text-gray-400">
+                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                             </svg>
                         </div>
@@ -44,10 +44,10 @@ const Home = () => {
                             onChange={(e) => setQuery(e.target.value)}
                             onKeyPress={handleKeyPress}
                             placeholder="Search anything..."
-                            className="w-full pl-14 pr-4 py-4 sm:py-5 text-base sm:text-lg border-2 border-gray-300 rounded-full 
-                                       hover:border-gray-400
-                                       focus:outline-none focus:border-blue-500
-                                       bg-white"
+                            className="w-full pl-14 pr-14 py-4 text-base border border-gray-300 rounded-lg 
+                                       hover:border-gray-400 hover:shadow-sm
+                                       focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500
+                                       bg-white transition-all"
                             autoFocus
                         />
 
@@ -55,7 +55,7 @@ const Home = () => {
                         {query && (
                             <button
                                 onClick={() => setQuery('')}
-                                className="absolute right-5 text-gray-400 hover:text-gray-600"
+                                className="absolute right-4 text-gray-400 hover:text-gray-600 p-1"
                             >
                                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -65,11 +65,11 @@ const Home = () => {
                     </div>
 
                     {/* Buttons */}
-                    <div className="flex justify-center gap-3 sm:gap-4 mt-8">
+                    <div className="flex justify-center gap-4 mt-8">
                         <button 
-                            className="px-6 sm:px-8 py-3 sm:py-3.5 bg-blue-600 text-white font-medium rounded-full
-                                       hover:bg-blue-700
-                                       cursor-pointer text-sm sm:text-base"
+                            className="px-8 py-3 bg-blue-600 text-white font-medium rounded-lg
+                                       hover:bg-blue-700 transition-colors
+                                       cursor-pointer text-sm shadow-sm"
                             onClick={handleSearch}
                         >
                             Search
