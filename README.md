@@ -2,6 +2,9 @@
 
 A full-stack search engine with web crawler, backend API, and React frontend.
 
+![Preview of Search Engine](preview.gif "Preview of Search Engine")
+
+
 ## Features
 
 - Full-text search with FTS5
