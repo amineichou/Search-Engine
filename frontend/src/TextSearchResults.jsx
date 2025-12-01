@@ -61,6 +61,21 @@ const SearchResults = () => {
     }
   };
 
+  // Sort images by format priority: JPG > JPEG > PNG > WEBP > others
+  const sortImagesByFormat = (images) => {
+    return images.sort((a, b) => {
+      const getFormatPriority = (url) => {
+        const lower = url.toLowerCase();
+        if (lower.includes('.jpg')) return 1;
+        if (lower.includes('.jpeg')) return 2;
+        if (lower.includes('.png')) return 3;
+        if (lower.includes('.webp')) return 4;
+        return 5;
+      };
+      return getFormatPriority(a.url) - getFormatPriority(b.url);
+    });
+  };
+
   // Get all images from results
   const getAllImages = () => {
     const allImages = [];
@@ -71,7 +86,7 @@ const SearchResults = () => {
         });
       }
     });
-    return allImages;
+    return sortImagesByFormat(allImages);
   };
 
   const handleSearch = () => {

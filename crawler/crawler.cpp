@@ -19,11 +19,25 @@
 const std::vector<std::string> START_WEBSITES = {
     "https://en.wikipedia.org/wiki/Billie_Eilish",
     "https://en.wikipedia.org/wiki/Elon_Musk",
-    "https://en.wikipedia.org/wiki/Artificial_intelligence",
+    "https://en.wikipedia.org/wiki/List_of_most-visited_websites",
+    "https://www.imdb.com/?ref_=tt_nv_home",
+    "https://www.bbc.com/news",
+    "https://www.nationalgeographic.com",
+    "https://www.cnn.com",
+    "https://www.aljazeera.com",
+    "https://www.theverge.com",
+    "https://www.techcrunch.com",
+    "https://www.nytimes.com",
+    "https://www.bloomberg.com",
+    "https://www.bbc.co.uk/sport",
+    "https://www.imdb.com/chart/top",
+    "https://www.github.com",
+    "https://www.stackoverflow.com",
+    "https://www.biography.com"
 };
 
-#define MAX_PAGES_PER_SITE 100
-#define MAX_DEPTH 3
+#define MAX_PAGES_PER_SITE 100 // Max pages to crawl per starting website
+#define MAX_DEPTH 3 // Max link depth from starting URL -1 for infinite
 #define CRAWL_DELAY_MS 0  // 1 second delay between requests (be polite)
 
 struct RobotsRules {
@@ -49,6 +63,34 @@ struct PageData {
 size_t WriteCallback(void* contents, size_t size, size_t nmemb, std::string* userp) {
     userp->append((char*)contents, size * nmemb);
     return size * nmemb;
+}
+
+// Function to normalize URLs (remove trailing slashes, fragments, sort query params)
+std::string normalizeUrl(const std::string& url) {
+    std::string normalized = url;
+    
+    // Remove fragment (#section)
+    size_t fragmentPos = normalized.find('#');
+    if (fragmentPos != std::string::npos) {
+        normalized = normalized.substr(0, fragmentPos);
+    }
+    
+    // Remove trailing slash (except for root domains)
+    if (normalized.length() > 8 && normalized.back() == '/') {
+        size_t protocolEnd = normalized.find("://");
+        if (protocolEnd != std::string::npos) {
+            size_t pathStart = normalized.find('/', protocolEnd + 3);
+            // Only remove if it's not just the domain
+            if (pathStart != std::string::npos && pathStart < normalized.length() - 1) {
+                normalized.pop_back();
+            }
+        }
+    }
+    
+    // Convert to lowercase (for case-insensitive comparison)
+    std::transform(normalized.begin(), normalized.end(), normalized.begin(), ::tolower);
+    
+    return normalized;
 }
 
 // Function to download webpage content
@@ -676,7 +718,12 @@ sqlite3* initDatabase(const char* dbName) {
         "VALUES('delete', old.id, old.title, old.description, old.content); "
         "INSERT INTO pages_fts(rowid, title, description, content) "
         "VALUES (new.id, new.title, new.description, new.content); "
-        "END;";
+        "END;"
+        
+        // Create index on URL for faster duplicate checking
+        "CREATE INDEX IF NOT EXISTS idx_pages_url ON pages(url);"
+        "CREATE INDEX IF NOT EXISTS idx_images_page_id ON images(page_id);"
+        "CREATE INDEX IF NOT EXISTS idx_links_source_page_id ON links(source_page_id);";
     
     rc = sqlite3_exec(db, sql, 0, 0, &errMsg);
     if (rc != SQLITE_OK) {
@@ -784,6 +831,27 @@ bool saveToDatabase(sqlite3* db, const PageData& data) {
     return true;
 }
 
+// Function to check if URL already exists in database
+bool urlExistsInDatabase(sqlite3* db, const std::string& url) {
+    sqlite3_stmt* stmt;
+    const char* sql = "SELECT COUNT(*) FROM pages WHERE url = ?";
+    
+    int rc = sqlite3_prepare_v2(db, sql, -1, &stmt, 0);
+    if (rc != SQLITE_OK) {
+        return false;  // Assume doesn't exist if query fails
+    }
+    
+    sqlite3_bind_text(stmt, 1, url.c_str(), -1, SQLITE_TRANSIENT);
+    
+    int count = 0;
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+        count = sqlite3_column_int(stmt, 0);
+    }
+    
+    sqlite3_finalize(stmt);
+    return count > 0;
+}
+
 // Main crawler function
 void crawl(const std::string& startUrl, sqlite3* db, int maxPages = MAX_PAGES_PER_SITE, int maxDepth = MAX_DEPTH) {
     std::queue<std::pair<std::string, int>> urlQueue;  // pair of (url, depth)
@@ -803,8 +871,11 @@ void crawl(const std::string& startUrl, sqlite3* db, int maxPages = MAX_PAGES_PE
         auto [currentUrl, currentDepth] = urlQueue.front();
         urlQueue.pop();
         
+        // Normalize URL to prevent duplicates
+        std::string normalizedUrl = normalizeUrl(currentUrl);
+        
         // Skip if already visited
-        if (visited.find(currentUrl) != visited.end()) {
+        if (visited.find(normalizedUrl) != visited.end()) {
             continue;
         }
         
@@ -813,8 +884,14 @@ void crawl(const std::string& startUrl, sqlite3* db, int maxPages = MAX_PAGES_PE
             continue;
         }
         
-        visited.insert(currentUrl);
+        visited.insert(normalizedUrl);
         pageCount++;
+        
+        // Check if URL already exists in database (skip re-crawling)
+        if (urlExistsInDatabase(db, currentUrl)) {
+            std::cout << "Skipping [" << pageCount << "/" << maxPages << "] (already in DB): " << currentUrl << std::endl;
+            continue;
+        }
         
         std::cout << "Crawling [" << pageCount << "/" << maxPages << "] (depth: " << currentDepth << "): " << currentUrl << std::endl;
         
@@ -885,7 +962,8 @@ void crawl(const std::string& startUrl, sqlite3* db, int maxPages = MAX_PAGES_PE
                 }
                 
                 // Only crawl if exact domain match (no subdomains)
-                if (linkDomain == baseDomain && visited.find(link) == visited.end()) {
+                std::string normalizedLink = normalizeUrl(link);
+                if (linkDomain == baseDomain && visited.find(normalizedLink) == visited.end()) {
                     urlQueue.push({link, currentDepth + 1});
                 }
             }

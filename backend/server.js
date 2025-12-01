@@ -269,12 +269,19 @@ app.get("/images", (req, res) => {
                        WHEN LOWER(p.title) LIKE LOWER('%' || ? || '%') THEN 4
                        ELSE 5
                    END as title_priority,
+                   CASE
+                       WHEN LOWER(i.image_url) LIKE '%.jpg%' THEN 1
+                       WHEN LOWER(i.image_url) LIKE '%.jpeg%' THEN 2
+                       WHEN LOWER(i.image_url) LIKE '%.png%' THEN 3
+                       WHEN LOWER(i.image_url) LIKE '%.webp%' THEN 4
+                       ELSE 5
+                   END as image_format_priority,
                    LENGTH(p.title) as title_length
             FROM images i
             INNER JOIN pages p ON i.page_id = p.id
             INNER JOIN pages_fts ON pages_fts.rowid = p.id
             WHERE pages_fts MATCH ?
-            ORDER BY title_priority ASC, title_length ASC, rank ASC
+            ORDER BY title_priority ASC, image_format_priority ASC, title_length ASC, rank ASC
             LIMIT 100
         `;
         
@@ -395,14 +402,38 @@ app.get("/search", (req, res) => {
                 // Remove duplicates
                 const uniqueImages = [...new Set(allImages)];
                 
-                // Sort: images with query terms in URL first
-                const matchingImages = uniqueImages.filter(img => 
-                    processedTokens.some(token => img.toLowerCase().includes(token))
-                );
-                const otherImages = uniqueImages.filter(img => 
-                    !processedTokens.some(token => img.toLowerCase().includes(token))
-                );
-                images = [...matchingImages, ...otherImages].slice(0, 4);
+                // Separate by format: JPG, JPEG, PNG, WEBP, others
+                const jpgImages = uniqueImages.filter(img => img.toLowerCase().includes('.jpg'));
+                const jpegImages = uniqueImages.filter(img => img.toLowerCase().includes('.jpeg'));
+                const pngImages = uniqueImages.filter(img => img.toLowerCase().includes('.png'));
+                const webpImages = uniqueImages.filter(img => img.toLowerCase().includes('.webp'));
+                const otherFormats = uniqueImages.filter(img => {
+                    const lowerImg = img.toLowerCase();
+                    return !lowerImg.includes('.jpg') && 
+                           !lowerImg.includes('.jpeg') && 
+                           !lowerImg.includes('.png') && 
+                           !lowerImg.includes('.webp');
+                });
+                
+                // Sort each format group: images with query terms first
+                const sortByRelevance = (imgArray) => {
+                    const matching = imgArray.filter(img => 
+                        processedTokens.some(token => img.toLowerCase().includes(token))
+                    );
+                    const nonMatching = imgArray.filter(img => 
+                        !processedTokens.some(token => img.toLowerCase().includes(token))
+                    );
+                    return [...matching, ...nonMatching];
+                };
+                
+                // Combine in priority order: JPG > JPEG > PNG > WEBP > others
+                images = [
+                    ...sortByRelevance(jpgImages),
+                    ...sortByRelevance(jpegImages),
+                    ...sortByRelevance(pngImages),
+                    ...sortByRelevance(webpImages),
+                    ...sortByRelevance(otherFormats)
+                ].slice(0, 4);
             }
             return {
                 title: row.title,
@@ -438,13 +469,37 @@ app.get("/search", (req, res) => {
                 if (row.images) {
                     const allImages = row.images.split('|||').filter(img => img.trim());
                     const uniqueImages = [...new Set(allImages)];
-                    const matchingImages = uniqueImages.filter(img => 
-                        processedTokens.some(token => img.toLowerCase().includes(token))
-                    );
-                    const otherImages = uniqueImages.filter(img => 
-                        !processedTokens.some(token => img.toLowerCase().includes(token))
-                    );
-                    images = [...matchingImages, ...otherImages].slice(0, 4);
+                    
+                    // Separate by format: JPG, JPEG, PNG, WEBP, others
+                    const jpgImages = uniqueImages.filter(img => img.toLowerCase().includes('.jpg'));
+                    const jpegImages = uniqueImages.filter(img => img.toLowerCase().includes('.jpeg'));
+                    const pngImages = uniqueImages.filter(img => img.toLowerCase().includes('.png'));
+                    const webpImages = uniqueImages.filter(img => img.toLowerCase().includes('.webp'));
+                    const otherFormats = uniqueImages.filter(img => {
+                        const lowerImg = img.toLowerCase();
+                        return !lowerImg.includes('.jpg') && 
+                               !lowerImg.includes('.jpeg') && 
+                               !lowerImg.includes('.png') && 
+                               !lowerImg.includes('.webp');
+                    });
+                    
+                    const sortByRelevance = (imgArray) => {
+                        const matching = imgArray.filter(img => 
+                            processedTokens.some(token => img.toLowerCase().includes(token))
+                        );
+                        const nonMatching = imgArray.filter(img => 
+                            !processedTokens.some(token => img.toLowerCase().includes(token))
+                        );
+                        return [...matching, ...nonMatching];
+                    };
+                    
+                    images = [
+                        ...sortByRelevance(jpgImages),
+                        ...sortByRelevance(jpegImages),
+                        ...sortByRelevance(pngImages),
+                        ...sortByRelevance(webpImages),
+                        ...sortByRelevance(otherFormats)
+                    ].slice(0, 4);
                 }
                 return {
                     title: row.title,

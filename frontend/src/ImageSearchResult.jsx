@@ -17,12 +17,28 @@ const ImageSearchResult = () => {
         }
     }, [searchParams]);
 
+    // Sort images by format priority: JPG > JPEG > PNG > WEBP > others
+    const sortImagesByFormat = (images) => {
+        return images.sort((a, b) => {
+            const getFormatPriority = (url) => {
+                const lower = url.toLowerCase();
+                if (lower.includes('.jpg')) return 1;
+                if (lower.includes('.jpeg')) return 2;
+                if (lower.includes('.png')) return 3;
+                if (lower.includes('.webp')) return 4;
+                return 5;
+            };
+            return getFormatPriority(a.image_url) - getFormatPriority(b.image_url);
+        });
+    };
+
     const fetchImages = async (searchQuery) => {
         setLoading(true);
         try {
             const response = await fetch(`http://localhost:4000/images?q=${encodeURIComponent(searchQuery)}`);
             const data = await response.json();
-            setImages(data.results || data);
+            const imageData = data.results || data;
+            setImages(sortImagesByFormat(imageData));
         } catch (error) {
             console.error('Error fetching images:', error);
             setImages([]);
