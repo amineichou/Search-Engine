@@ -9,6 +9,15 @@ const UserPreferences = require('./userPreferences');
 const didYouMean = require('didyoumean');
 const levenshtein = require('fast-levenshtein');
 
+// Add error handlers for unhandled errors
+process.on('uncaughtException', (error) => {
+    console.error('Uncaught Exception:', error);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+});
+
 const app = express();
 app.use(express.json());
 
@@ -50,18 +59,20 @@ const synonyms = {
 function getKnowledgeGraphInfo(query, callback) {
     const lowerQuery = query.toLowerCase().trim();
     
-    // Search for exact or close title match in database
-    const sql = `
-        SELECT title, url, description, content
-        FROM pages
-        WHERE LOWER(TRIM(title)) = LOWER(TRIM(?))
-           OR LOWER(TRIM(title)) LIKE LOWER(TRIM(?) || ' - %')
-           OR LOWER(TRIM(title)) LIKE LOWER('%' || ? || '%')
-        LIMIT 1
-    `;
-    
-    db.get(sql, [lowerQuery, lowerQuery, lowerQuery], (err, row) => {
-        if (err || !row) {
+    try {
+        // Search for exact or close title match in database
+        const sql = `
+            SELECT title, url, description, content
+            FROM pages
+            WHERE LOWER(TRIM(title)) = LOWER(TRIM(?))
+               OR LOWER(TRIM(title)) LIKE LOWER(TRIM(?) || ' - %')
+               OR LOWER(TRIM(title)) LIKE LOWER('%' || ? || '%')
+            LIMIT 1
+        `;
+        
+        const row = db.prepare(sql).get(lowerQuery, lowerQuery, lowerQuery);
+        
+        if (!row) {
             callback(null);
             return;
         }
@@ -86,7 +97,10 @@ function getKnowledgeGraphInfo(query, callback) {
         };
         
         callback(knowledgeCard);
-    });
+    } catch (err) {
+        console.error("Error in getKnowledgeGraphInfo:", err);
+        callback(null);
+    }
 }
 
 // Dictionary of common words from database (built dynamically)
@@ -94,27 +108,51 @@ let commonWords = new Set();
 
 // Build dictionary from database on startup
 function buildDictionary() {
-    const sql = 'SELECT DISTINCT title, description FROM pages LIMIT 1000';
-    db.all(sql, [], (err, rows) => {
-        if (!err && rows) {
-            rows.forEach(row => {
-                if (row.title) {
+    try {
+        const sql = 'SELECT DISTINCT title, description FROM pages LIMIT 1000';
+        const rows = db.prepare(sql).all();
+        
+        if (!rows || rows.length === 0) {
+            console.log("No pages found for dictionary - database might be empty");
+            // Set a timeout to retry building dictionary
+            setTimeout(buildDictionary, 5000);
+            return;
+        }
+        rows.forEach(row => {
+            if (row.title) {
+                try {
                     tokenizer.tokenize(row.title.toLowerCase()).forEach(word => {
                         if (word.length > 2) commonWords.add(word);
                     });
+                } catch (e) {
+                    console.error("Error tokenizing title:", e);
                 }
-                if (row.description) {
+            }
+            if (row.description) {
+                try {
                     tokenizer.tokenize(row.description.toLowerCase()).forEach(word => {
                         if (word.length > 2) commonWords.add(word);
                     });
+                } catch (e) {
+                    console.error("Error tokenizing description:", e);
                 }
-            });
-        }
-    });
+            }
+        });
+        console.log(`Dictionary built with ${commonWords.size} unique words`);
+    } catch (error) {
+        console.error("Error in buildDictionary:", error);
+        setTimeout(buildDictionary, 5000);
+    }
 }
 
-// Call on startup
-buildDictionary();
+// Call on startup with delay to ensure database is ready
+setTimeout(() => {
+    try {
+        buildDictionary();
+    } catch (error) {
+        console.error("Failed to start buildDictionary:", error);
+    }
+}, 2000);
 
 // Spelling correction using didyoumean library
 function correctSpelling(query) {
@@ -196,63 +234,69 @@ app.get("/images", (req, res) => {
         return res.json([]);
     }
     
-    // Check for spelling correction
-    const correctedQuery = correctSpelling(query);
-    
-    // Check cache first
-    const cacheKey = `images_${query.toLowerCase().trim()}`;
-    const cachedResults = searchCache.get(cacheKey);
-    if (cachedResults) {
-        return res.json({
-            results: cachedResults,
-            suggestion: correctedQuery
-        });
-    }
-    
-    // Normalize and tokenize the query
-    let processedTokens = normalizeQuery(query);
-    processedTokens = expandWithSynonyms(processedTokens);
-    
-    if (processedTokens.length === 0) {
-        return res.json([]);
-    }
-    
-    // Build FTS5 query
-    const ftsQuery = processedTokens.join(' OR ');
-    
-    // Query images from pages that match the search
-    const sql = `
-        SELECT DISTINCT i.image_url, p.title, p.url,
-               CASE
-                   WHEN LOWER(TRIM(p.title)) = LOWER(TRIM(?)) THEN 1
-                   WHEN LOWER(TRIM(p.title)) LIKE LOWER(TRIM(?) || ' - %') THEN 2
-                   WHEN LOWER(p.title) LIKE LOWER(? || '%') THEN 3
-                   WHEN LOWER(p.title) LIKE LOWER('%' || ? || '%') THEN 4
-                   ELSE 5
-               END as title_priority,
-               LENGTH(p.title) as title_length
-        FROM images i
-        INNER JOIN pages p ON i.page_id = p.id
-        INNER JOIN pages_fts ON pages_fts.rowid = p.id
-        WHERE pages_fts MATCH ?
-        ORDER BY title_priority ASC, title_length ASC, rank ASC
-        LIMIT 100
-    `;
-    
-    db.all(sql, [query.toLowerCase().trim(), query.toLowerCase().trim(), query.toLowerCase().trim(), query.toLowerCase().trim(), ftsQuery], (err, rows) => {
-        if (err) {
-            console.error("Database error:", err);
-            res.status(500).send("Database error");
-        } else {
-            const response = {
-                results: rows || [],
+    try {
+        // Check for spelling correction
+        const correctedQuery = correctSpelling(query);
+        
+        // Check cache first
+        const cacheKey = `images_${query.toLowerCase().trim()}`;
+        const cachedResults = searchCache.get(cacheKey);
+        if (cachedResults) {
+            return res.json({
+                results: cachedResults,
                 suggestion: correctedQuery
-            };
-            // Cache the results
-            searchCache.set(cacheKey, rows || []);
-            res.json(response);
+            });
         }
-    });
+        
+        // Normalize and tokenize the query
+        let processedTokens = normalizeQuery(query);
+        processedTokens = expandWithSynonyms(processedTokens);
+        
+        if (processedTokens.length === 0) {
+            return res.json([]);
+        }
+        
+        // Build FTS5 query
+        const ftsQuery = processedTokens.join(' OR ');
+        
+        // Query images from pages that match the search
+        const sql = `
+            SELECT DISTINCT i.image_url, p.title, p.url,
+                   CASE
+                       WHEN LOWER(TRIM(p.title)) = LOWER(TRIM(?)) THEN 1
+                       WHEN LOWER(TRIM(p.title)) LIKE LOWER(TRIM(?) || ' - %') THEN 2
+                       WHEN LOWER(p.title) LIKE LOWER(? || '%') THEN 3
+                       WHEN LOWER(p.title) LIKE LOWER('%' || ? || '%') THEN 4
+                       ELSE 5
+                   END as title_priority,
+                   LENGTH(p.title) as title_length
+            FROM images i
+            INNER JOIN pages p ON i.page_id = p.id
+            INNER JOIN pages_fts ON pages_fts.rowid = p.id
+            WHERE pages_fts MATCH ?
+            ORDER BY title_priority ASC, title_length ASC, rank ASC
+            LIMIT 100
+        `;
+        
+        const rows = db.prepare(sql).all(
+            query.toLowerCase().trim(), 
+            query.toLowerCase().trim(), 
+            query.toLowerCase().trim(), 
+            query.toLowerCase().trim(), 
+            ftsQuery
+        );
+        
+        const response = {
+            results: rows || [],
+            suggestion: correctedQuery
+        };
+        // Cache the results
+        searchCache.set(cacheKey, rows || []);
+        res.json(response);
+    } catch (err) {
+        console.error("Database error:", err);
+        res.status(500).json({ error: "Database error", message: err.message });
+    }
 });
 
 
@@ -264,38 +308,40 @@ app.get("/search", (req, res) => {
         return res.json([]);
     }
     
-    // Check for spelling correction
-    const correctedQuery = correctSpelling(query);
-    
-    // Record search in user history
-    userPrefs.recordSearch(query);
-    
-    // Check cache first
-    const cacheKey = `search_${query.toLowerCase().trim()}`;
-    const cachedResults = searchCache.get(cacheKey);
-    if (cachedResults) {
-        // Apply personalization even for cached results if enabled
-        if (enablePersonalization && Array.isArray(cachedResults)) {
-            return res.json({
-                results: userPrefs.personalizeResults(cachedResults),
-                suggestion: correctedQuery
-            });
-        } else if (enablePersonalization && cachedResults.results) {
+    try {
+        // Check for spelling correction
+        const correctedQuery = correctSpelling(query);
+        
+        // Record search in user history
+        userPrefs.recordSearch(query);
+        
+        // Check cache first
+        const cacheKey = `search_${query.toLowerCase().trim()}`;
+        const cachedResults = searchCache.get(cacheKey);
+        if (cachedResults) {
+            // Apply personalization even for cached results if enabled
+            if (enablePersonalization && Array.isArray(cachedResults)) {
+                return res.json({
+                    results: userPrefs.personalizeResults(cachedResults),
+                    suggestion: correctedQuery
+                });
+            } else if (enablePersonalization && cachedResults.results) {
+                return res.json({
+                    ...cachedResults,
+                    results: userPrefs.personalizeResults(cachedResults.results),
+                    suggestion: correctedQuery
+                });
+            }
+            
             return res.json({
                 ...cachedResults,
-                results: userPrefs.personalizeResults(cachedResults.results),
                 suggestion: correctedQuery
             });
         }
         
-        return res.json({
-            ...cachedResults,
-            suggestion: correctedQuery
-        });
-    }
-    
-    // Get knowledge graph info
-    getKnowledgeGraphInfo(query, (knowledgeInfo) => {
+        // Get knowledge graph info
+        const knowledgeInfo = getKnowledgeGraphInfo(query, (info) => info);
+        
         // Normalize and tokenize the query
         let processedTokens = normalizeQuery(query);
         
@@ -333,26 +379,65 @@ app.get("/search", (req, res) => {
             LIMIT 10
         `;
 
-        db.all(sql, [searchTerms, searchTerms, searchTerms, searchTerms, ftsQuery], (err, rows) => {
-        if (err) {
-            console.error("Database error:", err);
-            res.status(500).send("Database error");
-        } else {
-            if (!rows || rows.length === 0) {
-                const emptyResult = knowledgeInfo ? { knowledgeGraph: knowledgeInfo, results: [], suggestion: correctedQuery } : { results: [], suggestion: correctedQuery };
-                searchCache.set(cacheKey, emptyResult);
-                return res.json(emptyResult);
+        const rows = db.prepare(sql).all(searchTerms, searchTerms, searchTerms, searchTerms, ftsQuery);
+        
+        if (!rows || rows.length === 0) {
+            const emptyResult = knowledgeInfo ? { knowledgeGraph: knowledgeInfo, results: [], suggestion: correctedQuery } : { results: [], suggestion: correctedQuery };
+            searchCache.set(cacheKey, emptyResult);
+            return res.json(emptyResult);
+        }
+        
+        // Process images and prioritize relevant ones
+        let results = rows.map(row => {
+            let images = [];
+            if (row.images) {
+                const allImages = row.images.split('|||').filter(img => img.trim());
+                // Remove duplicates
+                const uniqueImages = [...new Set(allImages)];
+                
+                // Sort: images with query terms in URL first
+                const matchingImages = uniqueImages.filter(img => 
+                    processedTokens.some(token => img.toLowerCase().includes(token))
+                );
+                const otherImages = uniqueImages.filter(img => 
+                    !processedTokens.some(token => img.toLowerCase().includes(token))
+                );
+                images = [...matchingImages, ...otherImages].slice(0, 4);
             }
-            
-            // Process images and prioritize relevant ones
-            let results = rows.map(row => {
+            return {
+                title: row.title,
+                url: row.url,
+                description: row.description,
+                content: row.content,
+                images: images,
+                favicon: row.favicon,
+                personalizationScore: 0
+            };
+        });
+        
+        // Apply personalization if enabled
+        if (enablePersonalization) {
+            results = userPrefs.personalizeResults(results);
+        }
+        
+        // Prepare response with knowledge graph if available
+        const response = knowledgeInfo ? {
+            knowledgeGraph: knowledgeInfo,
+            results: results,
+            suggestion: correctedQuery
+        } : {
+            results: results,
+            suggestion: correctedQuery
+        };
+        
+        // Cache the results (before personalization for broader use)
+        const cacheResponse = knowledgeInfo ? {
+            knowledgeGraph: knowledgeInfo,
+            results: rows.map(row => {
                 let images = [];
                 if (row.images) {
                     const allImages = row.images.split('|||').filter(img => img.trim());
-                    // Remove duplicates
                     const uniqueImages = [...new Set(allImages)];
-                    
-                    // Sort: images with query terms in URL first
                     const matchingImages = uniqueImages.filter(img => 
                         processedTokens.some(token => img.toLowerCase().includes(token))
                     );
@@ -367,67 +452,25 @@ app.get("/search", (req, res) => {
                     description: row.description,
                     content: row.content,
                     images: images,
-                    favicon: row.favicon,
-                    personalizationScore: 0
+                    favicon: row.favicon
                 };
-            });
-            
-            // Apply personalization if enabled
-            if (enablePersonalization) {
-                results = userPrefs.personalizeResults(results);
-            }
-            
-            // Prepare response with knowledge graph if available
-            const response = knowledgeInfo ? {
-                knowledgeGraph: knowledgeInfo,
-                results: results,
-                suggestion: correctedQuery
-            } : {
-                results: results,
-                suggestion: correctedQuery
-            };
-            
-            // Cache the results (before personalization for broader use)
-            const cacheResponse = knowledgeInfo ? {
-                knowledgeGraph: knowledgeInfo,
-                results: rows.map(row => {
-                    let images = [];
-                    if (row.images) {
-                        const allImages = row.images.split('|||').filter(img => img.trim());
-                        const uniqueImages = [...new Set(allImages)];
-                        const matchingImages = uniqueImages.filter(img => 
-                            processedTokens.some(token => img.toLowerCase().includes(token))
-                        );
-                        const otherImages = uniqueImages.filter(img => 
-                            !processedTokens.some(token => img.toLowerCase().includes(token))
-                        );
-                        images = [...matchingImages, ...otherImages].slice(0, 4);
-                    }
-                    return {
-                        title: row.title,
-                        url: row.url,
-                        description: row.description,
-                        content: row.content,
-                        images: images,
-                        favicon: row.favicon
-                    };
-                })
-            } : rows.map(row => ({
-                title: row.title,
-                url: row.url,
-                description: row.description,
-                content: row.content,
-                images: row.images ? row.images.split('|||').filter(img => img.trim()).slice(0, 4) : [],
-                favicon: row.favicon
-            }));
-            
-            searchCache.set(cacheKey, cacheResponse);
-            
-            res.json(response);
-        }
-    });
-    });
-
+            })
+        } : rows.map(row => ({
+            title: row.title,
+            url: row.url,
+            description: row.description,
+            content: row.content,
+            images: row.images ? row.images.split('|||').filter(img => img.trim()).slice(0, 4) : [],
+            favicon: row.favicon
+        }));
+        
+        searchCache.set(cacheKey, cacheResponse);
+        
+        res.json(response);
+    } catch (err) {
+        console.error("Database error:", err);
+        res.status(500).json({ error: "Database error", message: err.message });
+    }
 });
 
 // Endpoint to record user clicks for personalization
@@ -448,8 +491,26 @@ app.get("/interests", (req, res) => {
     res.json(interests);
 });
 
+// Health check endpoint for Docker
+app.get("/api/health", (req, res) => {
+    // Check database connection
+    try {
+        db.prepare("SELECT 1").get();
+        res.json({ 
+            status: 'healthy',
+            database: 'connected',
+            uptime: process.uptime(),
+            timestamp: new Date().toISOString()
+        });
+    } catch (err) {
+        res.status(503).json({ 
+            status: 'unhealthy', 
+            database: 'disconnected',
+            error: err.message 
+        });
+    }
+});
 
-
-app.listen(process.env.PORT, () => {
-    console.log('Backend Server is running on port ' + process.env.PORT);
+app.listen(process.env.PORT || 4000, () => {
+    console.log('Backend Server is running on port ' + (process.env.PORT || 4000));
 });

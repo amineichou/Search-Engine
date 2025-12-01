@@ -1,0 +1,71 @@
+services:
+  # Backend API Service
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: search-engine-backend
+    ports:
+      - "4000:4000"
+    volumes:
+      - ./backend:/app
+      - /app/node_modules
+      - ./data:/app/data
+    environment:
+      - NODE_ENV=development
+      - PORT=4000
+      - DB_PATH=/app/data/crawler_data.db
+    command: node server.js
+    restart: unless-stopped
+    depends_on:
+      crawler:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:4000/api/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - search-network
+
+  # Frontend Service
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: search-engine-frontend
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    environment:
+      - NODE_ENV=development
+    command: npm run dev -- --host
+    depends_on:
+      - backend
+    restart: unless-stopped
+    networks:
+      - search-network
+
+  # Crawler Service
+  crawler:
+    build:
+      context: ./crawler
+      dockerfile: Dockerfile
+    container_name: search-engine-crawler
+    volumes:
+      - ./data:/app/data
+    environment:
+      - DB_PATH=/app/data/crawler_data.db
+    networks:
+      - search-network
+    restart: "no"  # Run once and exit
+
+networks:
+  search-network:
+    driver: bridge
+
+volumes:
+  data:

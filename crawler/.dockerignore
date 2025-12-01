@@ -1,0 +1,18 @@
+# Build artifacts
+build/
+*.o
+*.a
+crawler
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+
+# Database
+*.db
+*.db-journal
+
+# OS
+.DS_Store

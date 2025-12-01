@@ -1,0 +1,6 @@
+{
+  "watch": ["*.js"],
+  "ignore": [".env", "node_modules", "data"],
+  "ext": "js",
+  "delay": "2000"
+}

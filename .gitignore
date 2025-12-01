@@ -4,3 +4,9 @@ backend/package-lock.json
 backend/.env
 frontend/node_modules/
 frontend/package-lock.json
+
+# Docker and data
+data/
+backups/
+*.db
+*.db-journal

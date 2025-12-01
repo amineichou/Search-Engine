@@ -17,54 +17,9 @@
 
 // Configuration
 const std::vector<std::string> START_WEBSITES = {
-    // "https://www.facebook.com",
-    // "https://www.linkedin.com",
-    // "https://www.twitter.com",
-    // "https://www.x.com",
-    // "https://www.instagram.com",
-    // "https://www.reddit.com",
-    // "https://github.com",
-    // "https://en.wikipedia.org",
-    // "https://www.bioglance.in",
-    // "https://www.imdb.com",
-    // "https://www.bbc.co.uk",
-    // "https://www.aljazeera.com/",
-    // "https://www.youtube.com",
-    // "https://www.google.com",
-    // "https://chess.com/",
-    // "https://www.nationalgeographic.com",
-    // "https://www.nature.com",
-    // "https://www.sciencedaily.com",
-    // "https://www.space.com",
-    // "https://www.nasa.gov/",
-    // "https://www.imdb.com/list/ls052283250/",
-    // "https://en.wikipedia.org/wiki/Forbes_Celebrity_100",
-    // "https://today.yougov.com/ratings/entertainment/fame/people/all"
-    // "https://en.wikipedia.org/wiki/Billie_Eilish",
-    // "https://www.britannica.com/biography/Lady-Gaga",
-    // "https://en.wikipedia.org/wiki/Elon_Musk",
-    // "https://en.wikipedia.org/wiki/Tom_Cruise",
-    // "https://en.wikipedia.org/wiki/Vladimir_Putin",
-    // "https://en.wikipedia.org/wiki/Scarlett_Johansson",
-    // "https://en.wikipedia.org/wiki/Drake_(musician)"
-    // "https://en.wikipedia.org/wiki/Finneas_O%27Connell",
-    // "https://en.wikipedia.org/wiki/Harry_Styles",
-    // "https://www.imdb.com/chart/starmeter/",
-    // "https://www.imdb.com/chart/toptv/",
-    // "https://www.imdb.com/title/tt0903747/",
-    // "https://www.imdb.com/chart/top/",
-    // "https://www.imdb.com/?ref_=chttp_nv_home",
-    // "https://en.wikipedia.org/wiki/List_of_countries_and_dependencies_by_area",
-    // "https://en.wikipedia.org/wiki/Instagram",
-    // "https://en.wikipedia.org/wiki/YouTube",
-    // "https://en.wikipedia.org/wiki/Google",
-    // "https://en.wikipedia.org/wiki/Facebook",
-    // "https://en.wikipedia.org/wiki/Twitter",
-    // "https://en.wikipedia.org/wiki/LinkedIn",
-    // "https://en.wikipedia.org/wiki/Reddit",
-    // "https://en.wikipedia.org/wiki/Instagram",
-    // "https://en.wikipedia.org/wiki/Netflix",
-    // "https://en.wikipedia.org/wiki/Artificial_intelligence",
+    "https://en.wikipedia.org/wiki/Billie_Eilish",
+    "https://en.wikipedia.org/wiki/Elon_Musk",
+    "https://en.wikipedia.org/wiki/Artificial_intelligence",
 };
 
 #define MAX_PAGES_PER_SITE 100
@@ -736,13 +691,24 @@ sqlite3* initDatabase(const char* dbName) {
 
 // Function to save page data to database
 bool saveToDatabase(sqlite3* db, const PageData& data) {
+    char* errMsg = 0;
+    
+    // Begin transaction
+    int rc = sqlite3_exec(db, "BEGIN TRANSACTION", 0, 0, &errMsg);
+    if (rc != SQLITE_OK) {
+        std::cerr << "Failed to begin transaction: " << errMsg << std::endl;
+        sqlite3_free(errMsg);
+        return false;
+    }
+    
     // Prepare INSERT statement for pages
     sqlite3_stmt* stmt;
     const char* sql = "INSERT OR IGNORE INTO pages (url, title, description, content, raw_html, favicon) VALUES (?, ?, ?, ?, ?, ?)";
     
-    int rc = sqlite3_prepare_v2(db, sql, -1, &stmt, 0);
+    rc = sqlite3_prepare_v2(db, sql, -1, &stmt, 0);
     if (rc != SQLITE_OK) {
         std::cerr << "Failed to prepare statement: " << sqlite3_errmsg(db) << std::endl;
+        sqlite3_exec(db, "ROLLBACK", 0, 0, 0);
         return false;
     }
     
@@ -758,10 +724,12 @@ bool saveToDatabase(sqlite3* db, const PageData& data) {
     
     if (rc != SQLITE_DONE) {
         if (rc == SQLITE_CONSTRAINT) {
-            // URL already exists, skip
+            // URL already exists, skip - commit transaction and return
+            sqlite3_exec(db, "COMMIT", 0, 0, 0);
             return true;
         }
         std::cerr << "Failed to insert page: " << sqlite3_errmsg(db) << std::endl;
+        sqlite3_exec(db, "ROLLBACK", 0, 0, 0);
         return false;
     }
     
@@ -802,6 +770,15 @@ bool saveToDatabase(sqlite3* db, const PageData& data) {
             sqlite3_step(stmt);
             sqlite3_finalize(stmt);
         }
+    }
+    
+    // Commit transaction
+    rc = sqlite3_exec(db, "COMMIT", 0, 0, &errMsg);
+    if (rc != SQLITE_OK) {
+        std::cerr << "Failed to commit transaction: " << errMsg << std::endl;
+        sqlite3_free(errMsg);
+        sqlite3_exec(db, "ROLLBACK", 0, 0, 0);
+        return false;
     }
     
     return true;
@@ -922,14 +899,19 @@ int main(void) {
     // Initialize libcurl
     curl_global_init(CURL_GLOBAL_DEFAULT);
     
+    // Get database path from environment or use default
+    const char* db_path_env = std::getenv("DB_PATH");
+    std::string db_path = db_path_env ? db_path_env : "crawler_data.db";
+    
     // Initialize database
-    sqlite3* db = initDatabase("crawler_data.db");
+    sqlite3* db = initDatabase(db_path.c_str());
     if (!db) {
         curl_global_cleanup();
         return 1;
     }
     
     std::cout << "Starting web crawler..." << std::endl;
+    std::cout << "Database path: " << db_path << std::endl;
     std::cout << "Total sites to crawl: " << START_WEBSITES.size() << std::endl;
     std::cout << "Max pages per site: " << MAX_PAGES_PER_SITE << std::endl;
     std::cout << "Max depth: " << (MAX_DEPTH == -1 ? "unlimited" : std::to_string(MAX_DEPTH)) << std::endl;
@@ -948,6 +930,6 @@ int main(void) {
     
     std::cout << "\n==================================" << std::endl;
     std::cout << "All sites crawled successfully!" << std::endl;
-    std::cout << "Database saved as 'crawler_data.db'" << std::endl;
+    std::cout << "Database saved as '" << db_path << "'" << std::endl;
     return 0;
 }
